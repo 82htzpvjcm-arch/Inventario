@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Inventario">
+<title>Registro de Inventario</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1C2321;
+    --ink-soft:#2C3531;
+    --paper:#EDEDE9;
+    --amber:#D9A404;
+    --amber-dim:#A97E03;
+    --teal:#5C8374;
+    --danger:#B3452C;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;}
+  body{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--sans);
+    padding:20px 14px calc(90px + env(safe-area-inset-bottom));
+    padding-top:calc(20px + env(safe-area-inset-top));
+  }
+  .wrap{max-width:640px;margin:0 auto;}
+
+  .tag-header{
+    position:relative;
+    border:2px solid var(--amber);
+    border-radius:4px;
+    padding:18px 20px;
+    margin-bottom:18px;
+    background: repeating-linear-gradient(135deg, rgba(217,164,4,0.05) 0 8px, transparent 8px 16px);
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    letter-spacing:.16em;
+    font-size:10px;
+    color:var(--amber);
+    text-transform:uppercase;
+  }
+  h1{margin:6px 0 10px; font-size:24px; font-weight:800;}
+  .barcode{display:flex; gap:2px; height:18px; align-items:flex-end;}
+  .barcode span{background:var(--amber); display:block;}
+
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:18px;}
+  .stat{
+    background:var(--ink-soft); border:1px solid #3a423d; border-left:4px solid var(--teal);
+    border-radius:4px; padding:10px 10px;
+  }
+  .stat.warn{border-left-color:var(--danger);}
+  .stat .num{font-family:var(--mono); font-size:18px; font-weight:700;}
+  .stat .label{font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:#9aa39c; margin-top:3px;}
+
+  .mode-switch{
+    display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;
+    position:sticky; top:0; z-index:10; padding:8px 0; background:var(--ink);
+  }
+  .mode-btn{
+    padding:13px 10px; border-radius:6px; border:1px solid #3a423d; background:var(--ink-soft);
+    color:#9aa39c; font-weight:700; font-size:13px; text-align:center; cursor:pointer;
+  }
+  .mode-btn.active.add{background:var(--amber); color:var(--ink); border-color:var(--amber);}
+  .mode-btn.active.sell{background:var(--teal); color:var(--ink); border-color:var(--teal);}
+
+  .panel{background:var(--ink-soft); border:1px solid #3a423d; border-radius:6px; padding:18px; margin-bottom:20px;}
+  .panel h2{font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--amber); margin:0 0 14px;}
+  .panel.sell h2{color:var(--teal);}
+  .grid-form{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .field.full{grid-column:1/-1;}
+  .field label{display:block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#9aa39c; margin-bottom:5px;}
+  input, select{
+    width:100%; background:var(--ink); border:1px solid #3a423d; border-radius:6px;
+    padding:12px 10px; color:var(--paper); font-family:var(--sans); font-size:16px;
+  }
+  input:disabled{color:#9aa39c; opacity:0.8;}
+  input:focus, select:focus{outline:2px solid var(--amber); outline-offset:1px; border-color:var(--amber);}
+  .panel.sell input:focus, .panel.sell select:focus{outline-color:var(--teal); border-color:var(--teal);}
+  .actions-row{margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  button{font-family:var(--sans); font-weight:700; font-size:14px; border:none; border-radius:6px; padding:13px 18px; cursor:pointer;}
+  .btn-primary{background:var(--amber); color:var(--ink); flex:1;}
+  .btn-sell{background:var(--teal); color:var(--ink); flex:1;}
+  .btn-ghost{background:transparent; color:var(--paper); border:1px solid #3a423d;}
+  .btn-ghost:hover{border-color:var(--amber); color:var(--amber);}
+  .err{color:var(--danger); font-size:12px; margin-top:8px; display:none;}
+
+  .toolbar{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+  .toolbar input{max-width:none; flex:1;}
+  .toolbar .btn-ghost{white-space:nowrap;}
+
+  .list{display:flex; flex-direction:column; gap:8px;}
+  .item-card{background:var(--ink-soft); border:1px solid #3a423d; border-radius:8px; padding:12px 14px;}
+  .item-card.low-stock{border-left:3px solid var(--danger);}
+  .item-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .item-name{font-weight:700; font-size:15px;}
+  .item-meta{font-size:12px; color:#9aa39c; margin-top:2px;}
+  .tagchip{display:inline-block; font-family:var(--mono); font-size:11px; background:#232b27; border:1px solid #3a423d; border-radius:3px; padding:2px 6px; margin-top:4px;}
+  .item-nums{text-align:right; font-family:var(--mono); font-size:13px;}
+  .item-nums .qty{font-size:16px; font-weight:700;}
+  .row-actions{display:flex; gap:6px; margin-top:8px; justify-content:flex-end;}
+  .icon-btn{background:none; border:1px solid #3a423d; color:#9aa39c; cursor:pointer; font-size:13px; padding:6px 10px; border-radius:5px;}
+  .icon-btn:hover{color:var(--amber); border-color:var(--amber);}
+  .icon-btn.del:hover{color:var(--danger); border-color:var(--danger);}
+  .empty{text-align:center; padding:30px 16px; color:#9aa39c; font-size:14px;}
+
+  .section-title{font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:#9aa39c; margin:22px 0 10px;}
+
+  footer{text-align:center; margin-top:20px; font-size:10px; color:#6a7369; font-family:var(--mono); line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="tag-header">
+    <div class="eyebrow">Control de existencias</div>
+    <h1>Registro de Inventario</h1>
+    <div class="barcode" id="barcode"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num" id="statCount">0</div>
+      <div class="label">Productos</div>
+    </div>
+    <div class="stat">
+      <div class="num" id="statValue">$0</div>
+      <div class="label">Valor stock</div>
+    </div>
+    <div class="stat warn">
+      <div class="num" id="statLow">0</div>
+      <div class="label">Stock bajo</div>
+    </div>
+  </div>
+
+  <div class="mode-switch">
+    <div class="mode-btn add active" id="tabAdd">+ Añadir stock</div>
+    <div class="mode-btn sell" id="tabSell">↓ Vender producto</div>
+  </div>
+
+  <div class="panel" id="panelAdd">
+    <h2 id="addTitle">Añadir producto</h2>
+    <div class="grid-form">
+      <div class="field full">
+        <label>Nombre</label>
+        <input id="aName" type="text" placeholder="Ej. Tornillo M6">
+      </div>
+      <div class="field">
+        <label>SKU / Código</label>
+        <input id="aSku" type="text" placeholder="SKU-001">
+      </div>
+      <div class="field">
+        <label>Categoría</label>
+        <input id="aCategory" type="text" placeholder="Ferretería">
+      </div>
+      <div class="field">
+        <label>Cantidad</label>
+        <input id="aQty" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Precio de costo</label>
+        <input id="aCost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label>Ubicación</label>
+        <input id="aLocation" type="text" placeholder="Estante A1">
+      </div>
+      <div class="field">
+        <label>Stock mínimo</label>
+        <input id="aMin" type="number" min="0" step="1" inputmode="numeric" placeholder="5">
+      </div>
+    </div>
+    <div class="err" id="addError"></div>
+    <div class="actions-row">
+      <button class="btn-primary" id="btnAddSave">Añadir producto</button>
+      <button class="btn-ghost" id="btnAddCancel" style="display:none;">Cancelar edición</button>
+    </div>
+  </div>
+
+  <div class="panel sell" id="panelSell" style="display:none;">
+    <h2>Vender / retirar producto</h2>
+    <div class="grid-form">
+      <div class="field full">
+        <label>Producto</label>
+        <select id="sProduct">
+          <option value="">Selecciona un producto…</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>SKU</label>
+        <input id="sSku" type="text" disabled>
+      </div>
+      <div class="field">
+        <label>Categoría</label>
+        <input id="sCategory" type="text" disabled>
+      </div>
+      <div class="field">
+        <label>Ubicación</label>
+        <input id="sLocation" type="text" disabled>
+      </div>
+      <div class="field">
+        <label>Disponible</label>
+        <input id="sAvailable" type="text" disabled>
+      </div>
+      <div class="field">
+        <label>Cantidad vendida</label>
+        <input id="sQty" type="number" min="1" step="1" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Precio de venta</label>
+        <input id="sPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+    </div>
+    <div class="err" id="sellError"></div>
+    <div class="actions-row">
+      <button class="btn-sell" id="btnSellSave">Registrar venta</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="Buscar por nombre, SKU o categoría...">
+    <button class="btn-ghost" id="btnExport">Exportar a Excel</button>
+  </div>
+
+  <div class="list" id="list"></div>
+  <div class="empty" id="emptyState" style="display:none;">
+    Aún no hay productos. Añade el primero arriba para empezar tu inventario.
+  </div>
+
+  <div class="section-title">Ventas recientes</div>
+  <div class="list" id="salesList"></div>
+  <div class="empty" id="emptySales" style="display:none;">
+    Todavía no has registrado ventas.
+  </div>
+
+  <footer>
+    Los datos se guardan en este iPhone / Safari · solo tú puedes verlos<br>
+    Usa "Exportar a Excel" para respaldar o analizar tu inventario
+  </footer>
+</div>
+
+<script>
+let products = [];
+let sales = [];
+let editingId = null;
+
+function money(n){
+  return '$' + Number(n).toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+function buildBarcode(){
+  const el = document.getElementById('barcode');
+  el.innerHTML = '';
+  const widths = [3,1,2,4,1,3,2,1,5,2,1,3,1,2,4,1,2,3,1,4,2,1,3,2,1,5,1,2];
+  widths.forEach(w=>{
+    const bar = document.createElement('span');
+    bar.style.width = w+'px';
+    bar.style.height = (8 + Math.random()*10)+'px';
+    el.appendChild(bar);
+  });
+}
+
+async function loadData(){
+  try{
+    const p = await window.storage.get('products', false);
+    products = p && p.value ? JSON.parse(p.value) : [];
+  }catch(e){ products = []; }
+  try{
+    const s = await window.storage.get('sales', false);
+    sales = s && s.value ? JSON.parse(s.value) : [];
+  }catch(e){ sales = []; }
+  render();
+}
+async function saveProducts(){
+  try{ await window.storage.set('products', JSON.stringify(products), false); }
+  catch(e){ console.error('No se pudo guardar productos', e); }
+}
+async function saveSales(){
+  try{ await window.storage.set('sales', JSON.stringify(sales), false); }
+  catch(e){ console.error('No se pudo guardar ventas', e); }
+}
+
+document.getElementById('tabAdd').addEventListener('click', ()=>switchTab('add'));
+document.getElementById('tabSell').addEventListener('click', ()=>switchTab('sell'));
+function switchTab(mode){
+  const isAdd = mode === 'add';
+  document.getElementById('panelAdd').style.display = isAdd ? 'block' : 'none';
+  document.getElementById('panelSell').style.display = isAdd ? 'none' : 'block';
+  document.getElementById('tabAdd').classList.toggle('active', isAdd);
+  document.getElementById('tabSell').classList.toggle('active', !isAdd);
+  if(!isAdd) populateSellSelect();
+}
+
+function render(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const filtered = products.filter(p=>{
+    if(!q) return true;
+    return p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+  }).sort((a,b)=>a.name.localeCompare(b.name));
+
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'block';
+
+  filtered.forEach(p=>{
+    const isLow = p.min > 0 && p.qty <= p.min;
+    const card = document.createElement('div');
+    card.className = 'item-card' + (isLow ? ' low-stock' : '');
+    card.innerHTML = `
+      <div class="item-top">
+        <div>
+          <div class="item-name">${escapeHtml(p.name)}${isLow ? ' ⚠' : ''}</div>
+          <div class="item-meta">${escapeHtml(p.category)} · ${escapeHtml(p.location)}</div>
+          <span class="tagchip">${escapeHtml(p.sku)}</span>
+        </div>
+        <div class="item-nums">
+          <div class="qty">${p.qty} u.</div>
+          <div>${money(p.cost)} c/u</div>
+          <div>${money(p.qty * p.cost)} tot.</div>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="icon-btn edit" data-id="${p.id}">Editar</button>
+        <button class="icon-btn del" data-id="${p.id}">Eliminar</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  list.querySelectorAll('.edit').forEach(btn=>btn.addEventListener('click', ()=>startEdit(btn.dataset.id)));
+  list.querySelectorAll('.del').forEach(btn=>btn.addEventListener('click', ()=>deleteProduct(btn.dataset.id)));
+
+  const totalCount = products.length;
+  const totalValue = products.reduce((s,p)=>s + p.qty*p.cost, 0);
+  const lowCount = products.filter(p=>p.min > 0 && p.qty <= p.min).length;
+  document.getElementById('statCount').textContent = totalCount;
+  document.getElementById('statValue').textContent = money(totalValue);
+  document.getElementById('statLow').textContent = lowCount;
+
+  renderSales();
+}
+
+function renderSales(){
+  const salesList = document.getElementById('salesList');
+  salesList.innerHTML = '';
+  const recent = [...sales].sort((a,b)=> b.date.localeCompare(a.date)).slice(0,15);
+  document.getElementById('emptySales').style.display = recent.length ? 'none' : 'block';
+  recent.forEach(s=>{
+    const profit = (s.priceVenta - s.priceCosto) * s.qty;
+    const card = document.createElement('div');
+    card.className = 'item-card';
+    card.innerHTML = `
+      <div class="item-top">
+        <div>
+          <div class="item-name">${escapeHtml(s.name)}</div>
+          <div class="item-meta">${escapeHtml(s.category)} · ${escapeHtml(s.location)} · ${new Date(s.date).toLocaleDateString('es-MX')}</div>
+          <span class="tagchip">${escapeHtml(s.sku)}</span>
+        </div>
+        <div class="item-nums">
+          <div class="qty">${s.qty} u.</div>
+          <div>${money(s.priceVenta)} c/u</div>
+          <div style="color:${profit>=0?'#8fd19e':'var(--danger)'}">${money(profit)} gan.</div>
+        </div>
+      </div>
+    `;
+    salesList.appendChild(card);
+  });
+}
+
+function clearAddForm(){
+  ['aName','aSku','aCategory','aQty','aCost','aLocation','aMin'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('addError').style.display = 'none';
+}
+function startEdit(id){
+  const p = products.find(x=>x.id === id);
+  if(!p) return;
+  editingId = id;
+  document.getElementById('aName').value = p.name;
+  document.getElementById('aSku').value = p.sku;
+  document.getElementById('aCategory').value = p.category;
+  document.getElementById('aQty').value = p.qty;
+  document.getElementById('aCost').value = p.cost;
+  document.getElementById('aLocation').value = p.location;
+  document.getElementById('aMin').value = p.min;
+  document.getElementById('addTitle').textContent = 'Editar producto';
+  document.getElementById('btnAddSave').textContent = 'Guardar cambios';
+  document.getElementById('btnAddCancel').style.display = 'inline-block';
+  switchTab('add');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function resetAddMode(){
+  editingId = null;
+  document.getElementById('addTitle').textContent = 'Añadir producto';
+  document.getElementById('btnAddSave').textContent = 'Añadir producto';
+  document.getElementById('btnAddCancel').style.display = 'none';
+  clearAddForm();
+}
+async function deleteProduct(id){
+  products = products.filter(p=>p.id !== id);
+  await saveProducts();
+  render();
+}
+async function handleAddSave(){
+  const name = document.getElementById('aName').value.trim();
+  const sku = document.getElementById('aSku').value.trim();
+  const category = document.getElementById('aCategory').value.trim();
+  const qty = parseFloat(document.getElementById('aQty').value);
+  const cost = parseFloat(document.getElementById('aCost').value);
+  const location = document.getElementById('aLocation').value.trim();
+  const min = parseFloat(document.getElementById('aMin').value) || 0;
+
+  const errEl = document.getElementById('addError');
+  if(!name || isNaN(qty) || isNaN(cost)){
+    errEl.textContent = 'Nombre, cantidad y precio de costo son obligatorios.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  if(editingId){
+    const p = products.find(x=>x.id === editingId);
+    Object.assign(p, {name, sku, category, qty, cost, location, min});
+  } else {
+    products.push({
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+      name, sku, category, qty, cost, location, min
+    });
+  }
+  await saveProducts();
+  resetAddMode();
+  render();
+}
+document.getElementById('btnAddSave').addEventListener('click', handleAddSave);
+document.getElementById('btnAddCancel').addEventListener('click', resetAddMode);
+
+function populateSellSelect(){
+  const sel = document.getElementById('sProduct');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Selecciona un producto…</option>';
+  [...products].sort((a,b)=>a.name.localeCompare(b.name)).forEach(p=>{
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.name} · ${p.sku} · ${p.location} (${p.qty} disp.)`;
+    sel.appendChild(opt);
+  });
+  if(current) sel.value = current;
+}
+document.getElementById('sProduct').addEventListener('change', (e)=>{
+  const p = products.find(x=>x.id === e.target.value);
+  document.getElementById('sSku').value = p ? p.sku : '';
+  document.getElementById('sCategory').value = p ? p.category : '';
+  document.getElementById('sLocation').value = p ? p.location : '';
+  document.getElementById('sAvailable').value = p ? (p.qty + ' unidades') : '';
+});
+async function handleSellSave(){
+  const productId = document.getElementById('sProduct').value;
+  const qty = parseFloat(document.getElementById('sQty').value);
+  const priceVenta = parseFloat(document.getElementById('sPrice').value);
+  const errEl = document.getElementById('sellError');
+
+  const p = products.find(x=>x.id === productId);
+  if(!p){
+    errEl.textContent = 'Selecciona un producto.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(isNaN(qty) || qty <= 0){
+    errEl.textContent = 'Ingresa una cantidad válida.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(isNaN(priceVenta)){
+    errEl.textContent = 'Ingresa el precio de venta.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(qty > p.qty){
+    errEl.textContent = `Solo hay ${p.qty} unidades disponibles.`;
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  p.qty -= qty;
+  sales.push({
+    id: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    productId: p.id,
+    name: p.name, sku: p.sku, category: p.category, location: p.location,
+    qty, priceVenta, priceCosto: p.cost,
+    date: new Date().toISOString()
+  });
+
+  await saveProducts();
+  await saveSales();
+
+  document.getElementById('sProduct').value = '';
+  document.getElementById('sSku').value = '';
+  document.getElementById('sCategory').value = '';
+  document.getElementById('sLocation').value = '';
+  document.getElementById('sAvailable').value = '';
+  document.getElementById('sQty').value = '';
+  document.getElementById('sPrice').value = '';
+
+  populateSellSelect();
+  render();
+}
+document.getElementById('btnSellSave').addEventListener('click', handleSellSave);
+
+function exportToExcel(){
+  const invRows = products.map(p=>({
+    'Nombre': p.name, 'SKU': p.sku, 'Categoría': p.category, 'Cantidad': p.qty,
+    'Precio de costo': p.cost, 'Ubicación': p.location, 'Stock mínimo': p.min,
+    'Valor total': +(p.qty * p.cost).toFixed(2)
+  }));
+  const salesRows = sales.map(s=>({
+    'Fecha': new Date(s.date).toLocaleString('es-MX'),
+    'Nombre': s.name, 'SKU': s.sku, 'Categoría': s.category, 'Ubicación': s.location,
+    'Cantidad vendida': s.qty, 'Precio de venta': s.priceVenta, 'Precio de costo': s.priceCosto,
+    'Ingreso': +(s.qty * s.priceVenta).toFixed(2),
+    'Ganancia': +((s.priceVenta - s.priceCosto) * s.qty).toFixed(2)
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(invRows);
+  ws1['!cols'] = [{wch:22},{wch:14},{wch:16},{wch:10},{wch:14},{wch:14},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Inventario');
+  const ws2 = XLSX.utils.json_to_sheet(salesRows);
+  ws2['!cols'] = [{wch:18},{wch:22},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Ventas');
+  const dateStr = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `inventario_${dateStr}.xlsx`);
+}
+document.getElementById('btnExport').addEventListener('click', exportToExcel);
+document.getElementById('search').addEventListener('input', render);
+
+buildBarcode();
+loadData();
+</script>
+</body>
+</html>
